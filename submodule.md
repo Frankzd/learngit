@@ -75,3 +75,133 @@
 
     git clone /path/to/repos/super.git /path/to/my/workspace/super_clone
     cd /path/to/my/workspace/super_clone
+
+这时如果运行**git submodule status**可以查看子模组状态
+
+    git submodule status
+    -b4bfa72bdbe93476cb7778e0c4a90eae47c655c4 lib/lib_a
+    -90645c166812e4dc64ee7d10053f3ca6f6eb8783 lib/lib_b
+
+可以看到每个子模组前面都是40位的提交id，最前面是一个减号，表示子模组未被检出。
+如果需要克隆出子模组形式的外部引用库，需要首先执行**git submodule init**
+
+    git submodule init
+    Submodule 'lib/lib_a' (C:\Users\ZD\project\Github\learngit\submodule\libA.git) registered for path 'lib/lib_a'
+    Submodule 'lib/lib_b' (C:\Users\ZD\project\Github\learngit\submodule\libB.git) registered for path 'lib/lib_b'
+
+执行git submodule init操作s实际上修改了.git/config文件，对子模组进行了注册。然后执行**git submodule update**完成子模组的克隆。
+
+
+## 在子模组中修改和子模组的更新
+执行**git submodule update**更新出来的子模组都以某个具体的提交版本进行检出。进入某个子模组目录，会发现其处于非跟踪状态。
+    
+    git branch
+    * (HEAD detached at b4bfa72)
+    master
+
+显然在这种状态下，修改lib/lib_a下的文件，提交就会丢失。下面介绍如何在检出的子模组下进行修改，以及如何更新子模组。
+在子模组下切换到master分支(或者其他分支)后再进行修改。
+
+> (1)切换到master分支，然后在工作区做出一些改动
+
+    git checkout master
+    hack...
+
+> (2)执行提交
+
+    git add .
+    git commit -m "some comment."
+
+> (3)查看状态，会看到相对于远程分支领先一个提交
+
+    git status
+    On branch master
+    Your branch is ahead of 'origin/master' by 1 commit.
+    (use "git push" to publish your local commits)
+
+    nothing to commit, working tree clean
+
+> (4)先到super_clone版本库查看一下状态，可以看到子模组已经修改，包含了更新的提交。
+
+    git status
+    On branch master
+    Your branch is up to date with 'origin/master'.
+
+    Changes not staged for commit:
+    (use "git add <file>..." to update what will be committed)
+    (use "git checkout -- <file>..." to discard changes in working directory)
+
+        modified:   lib/lib_a (new commits)
+
+    no changes added to commit (use "git add" and/or "git commit -a")
+
+> (5)通过**git submodule status**可以看到lib/lib_a子模组指向了新的提交ID(后面有一个加号)，而lib/lib_b子模组状态正常。
+
+    git submodule status
+    +25ebf8a49a92eaed05ce50c929994e09fb3c1345 lib/lib_a (heads/master)
+    90645c166812e4dc64ee7d10053f3ca6f6eb8783 lib/lib_b (heads/master)
+
+> (6)这时候如果不小心执行了一次**git submodule update**命令，会将lib/lib_a重新切换到就得指向。
+
+    git submodule update
+    Submodule path 'lib/lib_a': checked out 'b4bfa72bdbe93476cb7778e0c4a90eae47c655c4'
+
+> (7)执行**git submodule status**查看子模组状态，可以看到lib/lib_a子模组被重置了。
+
+    git submodule status
+    b4bfa72bdbe93476cb7778e0c4a90eae47c655c4 lib/lib_a (remotes/origin/HEAD)
+    90645c166812e4dc64ee7d10053f3ca6f6eb8783 lib/lib_b (heads/master)
+
+但是刚才的提交其实并没有消失，实际上更新已经提交到了master分支，但是由于此时lib/lib_a的子模组重置为之前的分支，而非master分支，所以使用这种方法对子模组进行修改是行不通的。
+
+
+----
+重新来过！
+
+> (1)进入到lib/lib_a目录下，看到工作区再一次进入分离头指针状态。
+
+    git branch
+    * (HEAD detached at b4bfa72)
+    master
+
+> (2)重新切换到master分支，找回之前的提交
+
+    git checkout master
+    Previous HEAD position was b4bfa72 add data for libA
+    Switched to branch 'master'
+    Your branch is ahead of 'origin/master' by 1 commit.
+    (use "git push" to publish your local commits)
+
+现在如果要将lib/lib_a目录下子模组的改动记录到父项目(super)中，就需要在父项目中进行一次提交才能实现。
+
+> (1)进入父项目根目录(super_clone)查看状态。
+
+    git ststus -s
+    M lib/lib_a
+
+> (2)查看差异比较，会看到指向子模组的gitlink有改动。
+
+    git diff
+    diff --git a/lib/lib_a b/lib/lib_a
+    index b4bfa72..25ebf8a 160000
+    --- a/lib/lib_a
+    +++ b/lib/lib_a
+    @@ -1 +1 @@
+    -Subproject commit b4bfa72bdbe93476cb7778e0c4a90eae47c655c4
+    +Subproject commit 25ebf8a49a92eaed05ce50c929994e09fb3c1345
+
+> (3)将gitlink的改动添加到暂存区，然后提交。
+
+    git add -u
+    git commit -m "submodule lib/lib_a upgrade to new version."
+
+此时还不能急着推送，因为如果执行**git push**将super_clone版本库推送到远程版本库，会引发一个问题。即推送后的远程super版本库的子模组lib/lib_a指向了一个新的提交，而该提交还在本地的lib/lib_a版本库(尚未向上游推送)，这会导致其他人克隆super版本库和更新模组时因为找不到该子模组版本库相应的提交而出错。
+
+为了避免这种可能性的发生，最好先推送lib/lib_a中的提交，然后再向super版本库推送更新的子模组gitlink改动
+
+    cd /path/to/workspace/super_clone/lib/lib_a
+    git push
+    cd /path/to/workspace/super_clone/
+    git push
+
+
